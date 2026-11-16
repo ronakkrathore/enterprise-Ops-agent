@@ -1,22 +1,23 @@
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 
 
 
-def get_table_names(engine: Engine) -> list[dict]:
+def get_table_names(engine: Engine) -> list[dict[str, str]]:
     """
-    Retrieve table names along with their schema and database.
+    Retrieve tables and views along with their schema and database.
     """
 
     query = text("""
         SELECT
             table_catalog,
             table_schema,
-            table_name
+            table_name,
+            table_type
         FROM information_schema.tables
-        WHERE table_type = 'BASE TABLE'
+        WHERE table_type IN ('BASE TABLE', 'VIEW')
         ORDER BY table_schema, table_name
     """)
 
@@ -29,11 +30,11 @@ def get_table_names(engine: Engine) -> list[dict]:
         {
             "database": table["table_catalog"],
             "schema": table["table_schema"],
-            "name": table["table_name"]
+            "name": table["table_name"],
+            "object_type": table["table_type"]
         }
         for table in tables
     ]
-
 
 
 def get_table_columns(
@@ -123,13 +124,15 @@ def get_primary_keys(
 
 
 
+
 def get_foreign_keys(
     engine: Engine,
     table_name: str,
     schema_name: str = "main"
 ) -> list[dict]:
     """
-    Retrieve foreign key relationships for a specific DuckDB table and schema.
+    Retrieve foreign key relationships for a specific
+    DuckDB table and schema.
     """
 
     query = text("""
@@ -155,39 +158,15 @@ def get_foreign_keys(
 
         constraints = result.mappings().all()
 
-        foreign_keys = []
+    foreign_keys = []
 
-        for constraint in constraints:
-
-            referenced_schema_query = text("""
-                SELECT
-                    rc.unique_constraint_schema AS referenced_schema,
-                    tc.table_name AS referenced_table
-                FROM information_schema.referential_constraints rc
-                JOIN information_schema.table_constraints tc
-                    ON rc.unique_constraint_catalog = tc.constraint_catalog
-                    AND rc.unique_constraint_schema = tc.constraint_schema
-                    AND rc.unique_constraint_name = tc.constraint_name
-                WHERE rc.constraint_name = :constraint_name
-                    AND rc.constraint_schema = :schema_name
-            """)
-
-            referenced_result = connection.execute(
-                referenced_schema_query,
-                {
-                    "constraint_name": constraint["constraint_name"],
-                    "schema_name": schema_name
-                }
-            )
-
-            referenced_info = referenced_result.mappings().one()
-
-            foreign_keys.append({
-                "columns": constraint["constraint_column_names"],
-                "referenced_schema": referenced_info["referenced_schema"],
-                "referenced_table": referenced_info["referenced_table"],
-                "referenced_columns": constraint["referenced_column_names"],
-                "constraint_name": constraint["constraint_name"]
-            })
+    for constraint in constraints:
+        foreign_keys.append({
+            "columns": constraint["constraint_column_names"],
+            "referenced_schema": schema_name,
+            "referenced_table": constraint["referenced_table"],
+            "referenced_columns": constraint["referenced_column_names"],
+            "constraint_name": constraint["constraint_name"]
+        })
 
     return foreign_keys

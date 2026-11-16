@@ -1,0 +1,7 @@
+
+duckdb==2.0.0
+duckdb-engine==0.17.0
+SQLAlchemy==2.1.8
+pandas==3.1.1
+pyarrow==26.0.1
+python-dotenv==1.2.4

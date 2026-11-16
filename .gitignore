@@ -29,3 +29,6 @@ data/database/*
 
 # Logs
 *.log
+
+# Pytest
+.pytest_cache/

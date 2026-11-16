@@ -83,7 +83,8 @@ for table in tables:
     print(
         f"Database: {table['database']} | "
         f"Schema: {table['schema']} | "
-        f"Table: {table['name']}"
+        f"Name: {table['name']} | "
+        f"Type: {table['object_type']}"
     )
 
 
