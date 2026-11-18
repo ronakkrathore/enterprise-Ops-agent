@@ -120,11 +120,6 @@ def get_primary_keys(
 
     return primary_keys
 
-
-
-
-
-
 def get_foreign_keys(
     engine: Engine,
     table_name: str,
