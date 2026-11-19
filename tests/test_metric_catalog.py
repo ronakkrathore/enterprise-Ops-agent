@@ -1,9 +1,15 @@
-
 import pytest
 
 from shared.semantic.models.metrics import (
     AggregationType,
     MetricDefinition
+)
+
+from shared.semantic.models.metrics import (
+    DerivedMetricDefinition,
+    MetricReference,
+    BinaryMetricExpression,
+    ArithmeticOperator
 )
 
 from shared.semantic.catalog.metric_catalog import MetricCatalog
@@ -114,3 +120,65 @@ def test_catalogs_are_independent():
 
     assert len(first_catalog.get_all_metrics()) == 1
     assert len(second_catalog.get_all_metrics()) == 0
+
+def create_derived_metric(**overrides):
+    values = {
+        "metric_id": "average_order_value",
+        "name": "Average Order Value",
+        "description": "Completed sales divided by completed orders.",
+        "expression": BinaryMetricExpression(
+            left=MetricReference("completed_sales"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("completed_orders")
+        )
+    }
+
+    values.update(overrides)
+
+    return DerivedMetricDefinition(**values)
+
+def test_add_derived_metric():
+    catalog = MetricCatalog()
+    metric = create_derived_metric()
+
+    catalog.add_metric(metric)
+
+    assert catalog.get_metric("average_order_value") == metric
+
+
+def test_add_atomic_and_derived_metrics():
+    catalog = MetricCatalog()
+
+    atomic = create_metric()
+    derived = create_derived_metric()
+
+    catalog.add_metric(atomic)
+    catalog.add_metric(derived)
+
+    assert len(catalog.get_all_metrics()) == 2
+    assert atomic in catalog.get_all_metrics()
+    assert derived in catalog.get_all_metrics()
+
+
+def test_reject_conflicting_atomic_and_derived_metric_ids():
+    catalog = MetricCatalog()
+
+    atomic = create_metric(
+        metric_id="average_order_value"
+    )
+    derived = create_derived_metric()
+
+    catalog.add_metric(atomic)
+
+    with pytest.raises(ValueError, match="different metric"):
+        catalog.add_metric(derived)
+
+
+def test_add_duplicate_derived_metric():
+    catalog = MetricCatalog()
+    metric = create_derived_metric()
+
+    catalog.add_metric(metric)
+    catalog.add_metric(metric)
+
+    assert len(catalog.get_all_metrics()) == 1

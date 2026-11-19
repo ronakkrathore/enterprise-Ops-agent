@@ -58,6 +58,41 @@ CANONICAL_CONCEPTS = (
         description="Current or recorded status of an order."
     ),
 
+        BusinessConcept(
+        concept_id="order_item.id",
+        domain=BusinessDomain.ORDER,
+        name="Order Item ID",
+        concept_type=ConceptType.IDENTIFIER,
+        description="Unique identifier for an individual item within an order."
+    ),
+
+    BusinessConcept(
+        concept_id="order_item.status",
+        domain=BusinessDomain.ORDER,
+        name="Order Item Status",
+        concept_type=ConceptType.STATUS,
+        description="Lifecycle status of an individual order item."
+    ),
+
+    BusinessConcept(
+        concept_id="order_item.created_at",
+        domain=BusinessDomain.ORDER,
+        name="Order Item Creation Date",
+        concept_type=ConceptType.DATE,
+        description="Date and time when an individual order item was created."
+    ),
+
+    BusinessConcept(
+        concept_id="order_item.sale_price",
+        domain=BusinessDomain.ORDER,
+        name="Sale Price",
+        concept_type=ConceptType.MEASURE,
+        description=(
+            "Price recorded for an individual order item; "
+            "not necessarily accounting-recognized revenue."
+        ),
+    ),
+
     # Product concepts
     BusinessConcept(
         concept_id="product.id",

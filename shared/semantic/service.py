@@ -3,7 +3,15 @@ from shared.semantic.catalog.catalog import SemanticCatalog
 from shared.semantic.catalog.relationship_catalog import RelationshipCatalog
 from shared.semantic.catalog.metric_catalog import MetricCatalog
 from shared.semantic.relationship_resolver import resolve_join_path
+from shared.semantic.models.metrics import (
+    MetricDefinition,
+    DerivedMetricDefinition
+)
 
+from shared.semantic.validator import (
+    validate_metric_definition,
+    validate_derived_metric_definition
+)
 
 class SemanticLayer:
     """
@@ -36,7 +44,7 @@ class SemanticLayer:
         self.semantic_catalog = semantic_catalog
         self.relationship_catalog = relationship_catalog
         self.metric_catalog = metric_catalog
-
+        self._validate_existing_metrics()
 
 
     def get_approved_mappings(
@@ -69,7 +77,7 @@ class SemanticLayer:
     def get_metric(
         self,
         metric_id: str
-    ):
+    ) -> MetricDefinition | DerivedMetricDefinition | None:
         """
         Retrieve a metric definition by its identifier.
         """
@@ -107,3 +115,46 @@ class SemanticLayer:
             target_schema=target_schema,
             target_table=target_table
         )
+
+    def register_metric(
+        self,
+        metric: MetricDefinition | DerivedMetricDefinition
+    ) -> None:
+        """
+        Validate and register a semantic metric.
+        """
+
+        if isinstance(metric, MetricDefinition):
+            validate_metric_definition(metric)
+
+        elif isinstance(metric, DerivedMetricDefinition):
+            validate_derived_metric_definition(
+                metric,
+                self.metric_catalog
+            )
+
+        else:
+            raise TypeError(
+                "metric must be a MetricDefinition or "
+                "DerivedMetricDefinition instance."
+            )
+
+        self.metric_catalog.add_metric(metric)
+
+    def _validate_existing_metrics(self) -> None:
+        """Validate all metrics already present in the catalog."""
+
+        metrics = self.metric_catalog.get_all_metrics()
+
+        # Validate atomic definitions first.
+        for metric in metrics:
+            if isinstance(metric, MetricDefinition):
+                validate_metric_definition(metric)
+
+        # Then validate derived definitions and their dependencies.
+        for metric in metrics:
+            if isinstance(metric, DerivedMetricDefinition):
+                validate_derived_metric_definition(
+                    metric,
+                    self.metric_catalog
+                )

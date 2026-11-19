@@ -13,7 +13,9 @@ from shared.semantic.validator import validate_metric_definition
 
 from shared.semantic.models.metrics import (
     AggregationType,
-    MetricDefinition
+    MetricDefinition,
+    MetricFilter,
+    FilterOperator
 )
 
 from shared.semantic.validator import validate_semantic_relationship
@@ -30,6 +32,17 @@ from shared.database.connection import get_database_engine
 from shared.semantic.validator import validate_relationship_schema
 
 from shared.semantic.validator import validate_relationship_source
+
+from shared.semantic.models.metrics import (
+    DerivedMetricDefinition,
+    MetricReference,
+    BinaryMetricExpression,
+    ArithmeticOperator
+)
+
+from shared.semantic.catalog.metric_catalog import MetricCatalog
+
+from shared.semantic.validator import validate_derived_metric_definition
 
 def create_mapping(**overrides):
     values = {
@@ -139,6 +152,55 @@ def test_reject_metric_with_unknown_date_concept():
     ):
         validate_metric_definition(metric)
 
+def test_validate_metric_with_valid_filter_concept():
+    metric_filter = MetricFilter(
+        concept_id="order_item.status",
+        operator=FilterOperator.EQUAL,
+        value="Complete"
+    )
+
+    metric = create_metric(
+        filters=(metric_filter,)
+    )
+
+    assert validate_metric_definition(metric) is None
+
+
+def test_reject_metric_with_unknown_filter_concept():
+    metric_filter = MetricFilter(
+        concept_id="order_item.unknown_status",
+        operator=FilterOperator.EQUAL,
+        value="Complete"
+    )
+
+    metric = create_metric(
+        filters=(metric_filter,)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unknown business concept"
+    ):
+        validate_metric_definition(metric)
+
+
+def test_validate_metric_with_multiple_filter_concepts():
+    filters = (
+        MetricFilter(
+            concept_id="order_item.status",
+            operator=FilterOperator.EQUAL,
+            value="Complete"
+        ),
+        MetricFilter(
+            concept_id="order_item.created_at",
+            operator=FilterOperator.GREATER_THAN,
+            value="2026-01-01"
+        )
+    )
+
+    metric = create_metric(filters=filters)
+
+    assert validate_metric_definition(metric) is None
 
 def test_reject_invalid_metric_type():
     with pytest.raises(TypeError):
@@ -297,3 +359,153 @@ def test_reject_invalid_relationship():
             "not a relationship",
             "test_source"
         )
+
+def create_derived_metric(**overrides):
+    values = {
+        "metric_id": "average_order_value",
+        "name": "Average Order Value",
+        "description": "Completed sales divided by completed orders.",
+        "expression": BinaryMetricExpression(
+            left=MetricReference("completed_sales"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("completed_orders")
+        )
+    }
+
+    values.update(overrides)
+
+    return DerivedMetricDefinition(**values)
+
+def test_validate_derived_metric_with_existing_references():
+    catalog = MetricCatalog()
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_sales"
+    ))
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_orders",
+        measure_concept_id="order.id",
+        aggregation=AggregationType.COUNT_DISTINCT,
+        grain="order"
+    ))
+
+    derived_metric = create_derived_metric()
+
+    assert validate_derived_metric_definition(
+        derived_metric,
+        catalog
+    ) is None
+
+
+def test_reject_derived_metric_with_missing_reference():
+    catalog = MetricCatalog()
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_sales"
+    ))
+
+    derived_metric = create_derived_metric()
+
+    with pytest.raises(
+        ValueError,
+        match="Referenced metric does not exist"
+    ):
+        validate_derived_metric_definition(
+            derived_metric,
+            catalog
+        )
+
+
+def test_reject_derived_metric_self_reference():
+    catalog = MetricCatalog()
+
+    derived_metric = create_derived_metric(
+        expression=BinaryMetricExpression(
+            left=MetricReference("average_order_value"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("completed_orders")
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="cannot reference itself"
+    ):
+        validate_derived_metric_definition(
+            derived_metric,
+            catalog
+        )
+
+def test_reject_indirect_circular_metric_dependency():
+    catalog = MetricCatalog()
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_sales"
+    ))
+
+    catalog.add_metric(create_derived_metric(
+        metric_id="metric_a",
+        expression=BinaryMetricExpression(
+            left=MetricReference("metric_b"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("completed_sales")
+        )
+    ))
+
+    catalog.add_metric(create_derived_metric(
+        metric_id="metric_b",
+        expression=BinaryMetricExpression(
+            left=MetricReference("metric_a"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("completed_sales")
+        )
+    ))
+
+    metric_a = catalog.get_metric("metric_a")
+
+    with pytest.raises(
+        ValueError,
+        match="circular dependency"
+    ):
+        validate_derived_metric_definition(metric_a, catalog)
+
+def test_validate_valid_multi_level_metric_dependency():
+    catalog = MetricCatalog()
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_sales"
+    ))
+
+    catalog.add_metric(create_metric(
+        metric_id="completed_orders",
+        measure_concept_id="order.id",
+        aggregation=AggregationType.COUNT_DISTINCT,
+        grain="order"
+    ))
+
+    catalog.add_metric(create_metric(
+        metric_id="total_order_items",
+        measure_concept_id="order_item.id",
+        aggregation=AggregationType.COUNT_DISTINCT,
+        grain="order_item"
+    ))
+
+    average_order_value = create_derived_metric()
+
+    catalog.add_metric(average_order_value)
+
+    adjusted_kpi = create_derived_metric(
+        metric_id="adjusted_kpi",
+        name="Adjusted KPI",
+        expression=BinaryMetricExpression(
+            left=MetricReference("average_order_value"),
+            operator=ArithmeticOperator.DIVIDE,
+            right=MetricReference("total_order_items")
+        )
+    )
+
+    assert validate_derived_metric_definition(
+        adjusted_kpi,
+        catalog
+    ) is None

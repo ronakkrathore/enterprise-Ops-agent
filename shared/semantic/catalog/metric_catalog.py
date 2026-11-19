@@ -1,23 +1,33 @@
 
-from shared.semantic.models.metrics import MetricDefinition
+from shared.semantic.models.metrics import (
+    MetricDefinition,
+    DerivedMetricDefinition
+)
+
+
+MetricType = MetricDefinition | DerivedMetricDefinition
 
 
 class MetricCatalog:
     """
-    Stores and retrieves business metric definitions.
+    Stores and retrieves atomic and derived metric definitions.
 
     This initial implementation uses in-memory storage.
     """
 
     def __init__(self):
-        self._metrics: dict[str, MetricDefinition] = {}
+        self._metrics: dict[str, MetricType] = {}
 
-    def add_metric(self, metric: MetricDefinition) -> None:
-        """Add a metric definition to the catalog."""
+    def add_metric(self, metric: MetricType) -> None:
+        """Add an atomic or derived metric definition."""
 
-        if not isinstance(metric, MetricDefinition):
+        if not isinstance(
+            metric,
+            (MetricDefinition, DerivedMetricDefinition)
+        ):
             raise TypeError(
-                "metric must be a MetricDefinition instance."
+                "metric must be a MetricDefinition or "
+                "DerivedMetricDefinition instance."
             )
 
         existing = self._metrics.get(metric.metric_id)
@@ -32,12 +42,12 @@ class MetricCatalog:
 
         self._metrics[metric.metric_id] = metric
 
-    def get_all_metrics(self) -> tuple[MetricDefinition, ...]:
+    def get_all_metrics(self) -> tuple[MetricType, ...]:
         """Return all metrics as an immutable tuple."""
 
         return tuple(self._metrics.values())
 
-    def get_metric(self, metric_id: str) -> MetricDefinition | None:
+    def get_metric(self, metric_id: str) -> MetricType | None:
         """Retrieve a metric by its unique identifier."""
 
         return self._metrics.get(metric_id)

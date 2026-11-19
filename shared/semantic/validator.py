@@ -1,7 +1,13 @@
-
 from shared.semantic.vocabulary.registry import get_concept
 from shared.semantic.models.mappings import SemanticMapping
-from shared.semantic.models.metrics import MetricDefinition
+from shared.semantic.models.metrics import (
+    MetricDefinition,
+    DerivedMetricDefinition,
+    MetricReference,
+    BinaryMetricExpression
+)
+
+from shared.semantic.catalog.metric_catalog import MetricCatalog
 from shared.semantic.models.relationships import SemanticRelationship
 from sqlalchemy.engine import Engine
 
@@ -47,6 +53,12 @@ def validate_metric_definition(metric: MetricDefinition) -> None:
     if metric.date_concept_id is not None:
         concept_ids.append(metric.date_concept_id)
 
+    # Include concepts referenced by metric filters.
+    concept_ids.extend(
+        metric_filter.concept_id
+        for metric_filter in metric.filters
+    )
+
     for concept_id in concept_ids:
         try:
             get_concept(concept_id)
@@ -54,6 +66,75 @@ def validate_metric_definition(metric: MetricDefinition) -> None:
             raise ValueError(
                 f"Unknown business concept: {concept_id}"
             ) from exc
+
+
+def validate_derived_metric_definition(
+    metric: DerivedMetricDefinition,
+    catalog: MetricCatalog
+) -> None:
+    """
+    Validate references and detect circular dependencies
+    in a derived metric's dependency chain.
+    """
+
+    if not isinstance(metric, DerivedMetricDefinition):
+        raise TypeError(
+            "metric must be a DerivedMetricDefinition instance."
+        )
+
+    if not isinstance(catalog, MetricCatalog):
+        raise TypeError(
+            "catalog must be a MetricCatalog instance."
+        )
+
+    visited = set()
+    active_path = set()
+
+    def visit(current_metric: DerivedMetricDefinition) -> None:
+        metric_id = current_metric.metric_id
+
+        if metric_id in active_path:
+            raise ValueError(
+                f"Detected circular dependency involving: {metric_id}"
+            )
+
+        if metric_id in visited:
+            return
+
+        active_path.add(metric_id)
+
+        references = (
+            current_metric.expression.left,
+            current_metric.expression.right
+        )
+
+        for reference in references:
+
+            if reference.metric_id == metric_id:
+                raise ValueError(
+                    "A derived metric cannot reference itself."
+                )
+
+            referenced_metric = catalog.get_metric(
+                reference.metric_id
+            )
+
+            if referenced_metric is None:
+                raise ValueError(
+                    f"Referenced metric does not exist: "
+                    f"{reference.metric_id}"
+                )
+
+            if isinstance(
+                referenced_metric,
+                DerivedMetricDefinition
+            ):
+                visit(referenced_metric)
+
+        active_path.remove(metric_id)
+        visited.add(metric_id)
+
+    visit(metric)
 
 
 def validate_semantic_relationship(
